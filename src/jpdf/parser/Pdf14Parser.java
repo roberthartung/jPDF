@@ -56,22 +56,7 @@ public class Pdf14Parser extends BaseParser implements Parser {
 		replaceIndirectReference(dict);
 		
 		PdfDictionary root = (PdfDictionary) dict.get("Root");
-		System.out.println(root);
-		PdfDictionary pages = (PdfDictionary) root.get("Pages");
-		System.out.println(pages);
-		// System.out.println(pages.get("Pages")); = null
-		System.out.println(pages.get("Count"));
-		System.out.println(pages.get("Type"));
-		PdfArray kids = (PdfArray) pages.get("Kids");
-		System.out.println(kids);
-		for(PdfObject kid : kids) {
-			if(kid instanceof PdfDictionary) {
-				PdfDictionary kidDict = (PdfDictionary) kid;
-				System.out.println(kidDict.get("Count"));
-				System.out.println(kidDict.get("Type"));
-				System.out.println(kidDict.get("Kids"));
-			}
-		}
+		parsePageTree((PdfDictionary) root.get("Pages"));
 		return new Document();
 	}
 	

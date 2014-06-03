@@ -1,13 +1,20 @@
 package jpdf.objects;
 
 public class PdfStreamObject implements PdfObject {
-	PdfDictionary dict;
+	private PdfDictionary dict;
 	
-	public PdfStreamObject(PdfDictionary dict) {
+	private byte[] data;
+	
+	public PdfStreamObject(PdfDictionary dict, byte[] data) {
 		this.dict = dict;
+		this.data = data;
 	}
 	
 	public PdfDictionary getDictionary() {
 		return dict;
+	}
+	
+	public byte[] getData() {
+		return data;
 	}
 }

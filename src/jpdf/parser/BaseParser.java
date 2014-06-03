@@ -2,8 +2,11 @@ package jpdf.parser;
 
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -81,7 +84,8 @@ abstract public class BaseParser {
 	protected Character _nextChar() {
 		try 
 		{
-			return Character.toChars(stream.read())[0];
+			int c = stream.read();
+			return Character.toChars(c)[0];
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -117,13 +121,13 @@ abstract public class BaseParser {
 	 * @return PdfString
 	 */
 	
-	protected PdfLiteralString readName(boolean strict) {
+	protected PdfLiteralString readName() {
 		Character tmp;
 		while(((tmp = _nextChar()) != null) && tmp >= 0x21 && tmp <= 0x7e && !isDelimiter(tmp)) {
 			buffer.append(tmp);
 		}
 		String s = clearBuffer();
-		if(tmp == ' ') {
+		if(tmp == ' ') { //  || tmp == '\n' || tmp == '\r'
 			nextChar(true);
 		} else {
 			buffer.append(tmp);
@@ -140,12 +144,12 @@ abstract public class BaseParser {
 		return b;
 	}
 	
-	protected Character nextChar(boolean skipNewline) {
+	protected Character nextChar(boolean skipSpaceCharacters) {
 		Character tmp;
 		do
 		{
 			tmp = _nextChar();
-		} while(tmp == ' ' || (skipNewline && (tmp == '\r' || tmp == '\n')));
+		} while((skipSpaceCharacters && (tmp == '\r' || tmp == '\n' || tmp == ' ')));
 		buffer.append(tmp);
 		return tmp;
 	}
@@ -175,6 +179,7 @@ abstract public class BaseParser {
 		
 		if(buffer.toString().equals("s")) {
 			//readWord("tream");
+			debug("stream object");
 			readLine();
 			
 			if(!(obj instanceof PdfDictionary)) {
@@ -185,25 +190,24 @@ abstract public class BaseParser {
 			
 			PdfDictionary dict = (PdfDictionary) obj;
 			
-			obj = new PdfStreamObject(dict);
-			streamObjects.add((PdfStreamObject) obj);
-			
 			int length = Integer.parseInt(dict.get("Length").toString());
 			byte[] data = readNBytes(length);
+			byte[] result = null;
 			if(dict.containsKey("Filter")) {
 				if(dict.containsKey("FlateDecode")) {
 					// TODO better decoding
-					Inflater decompressor = new Inflater();
-					byte[] result = new byte[length];
-					decompressor.setInput(data, 0, length);
+					Inflater inflater = new Inflater();
+					inflater.setInput(data);
+					ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 					try {
-						int resultLength = decompressor.inflate(result);
-						decompressor.end();
-						String res = new String(result, 0, resultLength, "UTF-8");
-						//System.out.println(decompressor.needsInput());
+						byte[] tmp = new byte[1024];
+						while(!inflater.finished()) {
+							int resultLength = inflater.inflate(tmp);
+							buffer.write(tmp, 0, resultLength);
+						}
+						inflater.end();
+						result = buffer.toByteArray();
 					} catch (DataFormatException e) {
-						throw new ParserException("Unable to decode data for " + dict);
-					} catch (UnsupportedEncodingException e) {
 						throw new ParserException("Unable to decode data for " + dict);
 					}
 					
@@ -212,6 +216,10 @@ abstract public class BaseParser {
 				} else {
 					throw new ParserException("Unsupported filter. " + dict);
 				}
+				
+				PdfStreamObject stream = new PdfStreamObject(dict, result);
+				streamObjects.add(stream);
+				obj = stream;
 			} else {
 				// System.out.println(dict);
 			}
@@ -241,7 +249,7 @@ abstract public class BaseParser {
 
 	private void skipComments() {
 		while(buffer.toString().equals("%")) {
-			debug("skip comment");
+			//debug("skip comment");
 			parseComment();
 		}
 	}
@@ -293,13 +301,15 @@ abstract public class BaseParser {
 		int parenthesesCount = 0;
 		
 		Character tmp;
-		boolean escape = false;
+		boolean escape = buffer.charAt(0) == '\\';
+		if(!escape) {
+			sb.append(buffer);
+		}
 		while(true) {
-			tmp = nextChar();
+			tmp = nextChar(false);
 			
 			if(escape) {
 				escape = false;
-				debug("escaped: " + tmp);
 				
 				// ignore backslash if not one of the following characters
 				if(tmp != '\n' && tmp != '\r' && tmp != '\t' && tmp != '\b' && tmp != '\f' && tmp != '(' && tmp != ')' && tmp != '\\') {
@@ -308,6 +318,7 @@ abstract public class BaseParser {
 			} else {
 				if(tmp == '\\') {
 					escape = true;
+					continue;
 				} else if(tmp == '(') {
 					parenthesesCount++;
 				} else if(tmp == ')') {
@@ -318,8 +329,7 @@ abstract public class BaseParser {
 					}
 				}
 			}
-			
-			buffer.append(tmp);
+			sb.append(tmp);
 		}
 		
 		return sb.toString();
@@ -375,12 +385,16 @@ abstract public class BaseParser {
 						}
 					}
 					
-					if(name != null && value != null) {
-						if(generation != null) {
-							throw new ParserException("Unimplemented");
+					if(name != null) {
+						if(value != null) {
+							if(generation != null) {
+								throw new ParserException("Unimplemented");
+							} else {
+								debug(name + " = " + value);
+								dic.put(name.toString(), value);
+							}
 						} else {
-							debug(name + " = " + value);
-							dic.put(name.toString(), value);
+							dic.put(name.toString(), null);
 						}
 					}
 					
@@ -424,7 +438,7 @@ abstract public class BaseParser {
 					readWord(">");
 					clearBuffer();
 					nextChar(true);
-					debug("[DICT] Done. Next Buffer: '"+ buffer + "'");
+					debug("[DICT] Done.");
 					return dic;
 				} else {
 					String s = readUntil('>');
@@ -433,9 +447,14 @@ abstract public class BaseParser {
 					return new PdfHexadecimalString(s);
 				}
 			case "(" :
-				//throw new ParserException("unimplemented");
-				clearBuffer();
-				nextChar(true);
+				clearBuffer(); // remove (
+				nextChar();
+				// TODO enhance white space handling
+				if(buffer.charAt(0) == ')') {
+					clearBuffer(); // remove (
+					nextChar();
+					return new PdfLiteralString(" ");
+				}
 				String s = readLiteralString();
 				clearBuffer();
 				nextChar(true);
@@ -443,7 +462,6 @@ abstract public class BaseParser {
 			case "[" :
 				clearBuffer();
 				nextChar(true);
-				debug("array");
 				PdfArray array = new PdfArray();
 				while(!buffer.toString().equals("]")) {
 					PdfObject obj = parseObject();
@@ -466,7 +484,7 @@ abstract public class BaseParser {
 			case "/" :
 				clearBuffer();
 				nextChar(true);
-				return readName(strict);
+				return readName();
 			case "R" :
 				clearBuffer();
 				nextChar(true);
@@ -476,12 +494,36 @@ abstract public class BaseParser {
 				debug("firstChar:" + firstChar);
 				if ( (firstChar >= '0' && firstChar <= '9') || firstChar == '-' || firstChar == '.') {
 					return readNumber();
-				} else {
-					return readName(strict);
+				} else if(firstChar == 't') {
+					readWord("rue");
+					clearBuffer();
+					nextChar(true);
+					return new PdfLiteralString("true");
+				} else if(firstChar == 'f') {
+					readWord("alse");
+					clearBuffer();
+					nextChar(true);
+					return new PdfLiteralString("false");
+				} else if(firstChar == 'n') {
+					readWord("ull");
+					clearBuffer();
+					nextChar(true);
+					return new PdfLiteralString("null");
+				} else if(firstChar == 'g') {
+					clearBuffer();
+					nextChar(true);
+					if(buffer.charAt(0) == 's') {
+						clearBuffer();
+						nextChar(true);
+						return new PdfKeyword("gs");
+					}
+					
+					return new PdfKeyword("g");
 				}
+				
+				throw new ParserException("Unknown next character: '" + firstChar + "'");
+				
 		}
-		
-		//return null;
 	}
 
 	protected String parseComment() {
@@ -500,10 +542,48 @@ abstract public class BaseParser {
 		}
 	}
 	
+	private int pageCount = 0;
+	
 	protected void readLine(String s) throws ParserException {
 		readLine();
 		if(!s.equals(buffer.toString())) {
 			throw new ParserException("Expected line '"+s+"' instead of '"+buffer+"'");
+		}
+	}
+	
+	protected void parsePageTree(PdfDictionary pages) throws ParserException {
+		if(!pages.containsKey("Kids")) {
+			parsePageObject(pages);
+			return;
+		}
+		PdfArray kids = (PdfArray) pages.get("Kids");
+		for(PdfObject kid : kids) {
+			if(kid instanceof PdfDictionary) {
+				PdfDictionary kidDict = (PdfDictionary) kid;
+				parsePageTree(kidDict);
+			}
+		}
+	}
+	
+	protected void parsePageObject(PdfDictionary pages) throws ParserException {
+		pageCount++;
+		if(pageCount == 597) {
+			PdfObject contents = pages.get("Contents");
+			if(contents instanceof PdfStreamObject) {
+				PdfStreamObject stream = (PdfStreamObject) contents; 
+				byte[] data = stream.getData();
+				try {
+					String res = new String(data, 0, data.length, "UTF-8");
+					System.out.println(res);
+				} catch (UnsupportedEncodingException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+				ContentParser parser = new ContentParser(new BufferedStream(new ByteArrayInputStream(data)));
+				parser.parse();
+			} else {
+				throw new ParserException("Contents is not a stream.");
+			}
 		}
 	}
 }
