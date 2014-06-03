@@ -8,10 +8,10 @@ jPDF parses the whole PDF using a JAVA based Class that returns a document with 
 Usage
 =====
 
-public class MyApp {
-
-	public static void main(String[] args) throws FileNotFoundException, ParserException {
-		Document doc = Document.fromFile("some.pdf");
-		// Further processing
+	public class MyApp {
+	
+		public static void main(String[] args) throws FileNotFoundException, ParserException {
+			Document doc = Document.fromFile("somefile.pdf");
+			// Futher Processing
+		}
 	}
-}
