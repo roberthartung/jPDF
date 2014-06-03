@@ -2,14 +2,14 @@ package jpdf.parser;
 
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
+import java.util.Map;
+import java.util.Set;
 import java.util.Stack;
 
 import jpdf.objects.PdfArray;
@@ -30,7 +30,9 @@ abstract public class BaseParser {
 		Arrays.sort(delimiters);
 	}
 	
-	HashMap<PdfNumber,HashMap<PdfNumber,PdfIndirectObject>> indirectObjects;
+	protected Map<PdfNumber,Map<PdfNumber,PdfIndirectObject>> indirectObjects;
+	
+	protected Set<PdfStreamObject> streamObjects = new HashSet<>();
 	
 	/**
 	 * Buffer holding temporary strings
@@ -185,6 +187,7 @@ abstract public class BaseParser {
 			PdfDictionary dict = (PdfDictionary) obj;
 			
 			obj = new PdfStreamObject(dict);
+			streamObjects.add((PdfStreamObject) obj);
 			
 			int length = Integer.parseInt(dict.get("Length").toString());
 			byte[] data = readNBytes(length);
@@ -211,7 +214,7 @@ abstract public class BaseParser {
 					throw new ParserException("Unsupported filter. " + dict);
 				}
 			} else {
-				//System.out.println(dict);
+				// System.out.println(dict);
 			}
 			
 			nextChar(true);
@@ -366,9 +369,12 @@ abstract public class BaseParser {
 						} else if(size == 1) {
 							dic.put(name.toString(), objects.get(0));
 						} else if(size == 3) {
-							// TODO
-							// System.err.println("REFERENCE TO INDIRECT OBJECT?");
-							// dic.put(name.toString(), n);
+							if(objects.get(2) instanceof PdfLiteralString) {
+								//System.out.println(indirectObjects.get(objects.get(0)));
+								dic.put(name.toString(), new PdfIndirectReference((PdfNumber) objects.get(0), (PdfNumber) objects.get(1)));
+							} else {
+								throw new ParserException("Expecting object 3 to be a literal string.");
+							}
 						} else {
 							throw new ParserException("Unknown number of objects after name token in dictionary: '"+size+"'");
 						}

@@ -6,4 +6,8 @@ public class PdfStreamObject implements PdfObject {
 	public PdfStreamObject(PdfDictionary dict) {
 		this.dict = dict;
 	}
+	
+	public PdfDictionary getDictionary() {
+		return dict;
+	}
 }
