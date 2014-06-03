@@ -16,6 +16,7 @@ import jpdf.objects.PdfArray;
 import jpdf.objects.PdfDictionary;
 import jpdf.objects.PdfHexadecimalString;
 import jpdf.objects.PdfIndirectObject;
+import jpdf.objects.PdfKeyword;
 import jpdf.objects.PdfNumber;
 import jpdf.objects.PdfObject;
 import jpdf.objects.PdfLiteralString;
@@ -161,8 +162,6 @@ abstract public class BaseParser {
 		debug("indirectObject: " + num1 + "." + num2);
 		
 		boolean hasKeywords = false;
-		
-		debug("Buffer: " + buffer.toString());
 		
 		if(buffer.toString().equals("o")) {
 			debug("'obj' keyword found");
@@ -340,10 +339,52 @@ abstract public class BaseParser {
 				clearBuffer();
 				Character next = nextChar(); // second <;
 				if(next == '<') {
-					debug("[parseObject] Dictionary");
+					debug("[parseObject] Dictionary started");
 					PdfDictionary dic = new PdfDictionary();
 					clearBuffer();
 					nextChar(true);
+					LinkedList<PdfObject> objectBuffer = new LinkedList<>();
+					PdfLiteralString name = null;
+					PdfObject value = null;
+					PdfNumber generation = null;
+					while(!buffer.toString().equals(">")) {
+						PdfObject obj = parseObject(true);
+						
+						if(obj instanceof PdfLiteralString) {
+							if(value != null) {
+								debug(name + " = " + value);
+								dic.put(name.toString(), value);
+								value = null;
+							} else if(name != null) {
+								debug(name + " = null");
+								dic.put(name.toString(), null);
+							}
+							name = (PdfLiteralString) obj;
+						} else if(obj instanceof PdfKeyword) {
+							debug(name + " = R(" + value + " " + generation + ")");
+							dic.put(name.toString(), new PdfIndirectReference((PdfNumber) value, generation));
+							name = null;
+							value = null;
+							generation = null;
+						} else if(value == null) {
+							value = obj;
+						} else if(obj instanceof PdfNumber) {
+							generation = (PdfNumber) obj;
+						} else {
+							throw new ParserException("Found two objects after dictionary name. Expected number but found " + obj);
+						}
+					}
+					
+					if(name != null && value != null) {
+						if(generation != null) {
+							throw new ParserException("Unimplemented");
+						} else {
+							debug(name + " = " + value);
+							dic.put(name.toString(), value);
+						}
+					}
+					
+					/*
 					while(buffer.toString().equals("/")) {
 						// Remove '/'
 						clearBuffer();
@@ -379,6 +420,7 @@ abstract public class BaseParser {
 							throw new ParserException("Unknown number of objects after name token in dictionary: '"+size+"'");
 						}
 					}
+					*/
 					readWord(">");
 					clearBuffer();
 					nextChar(true);
@@ -398,16 +440,21 @@ abstract public class BaseParser {
 				clearBuffer();
 				nextChar(true);
 				return new PdfLiteralString(s);
-				
-				//break;
 			case "[" :
 				clearBuffer();
 				nextChar(true);
 				debug("array");
 				PdfArray array = new PdfArray();
-				
 				while(!buffer.toString().equals("]")) {
-					array.add(parseObject());
+					PdfObject obj = parseObject();
+					if(obj instanceof PdfKeyword) {
+						int size = array.size();
+						PdfNumber generation = (PdfNumber) array.remove(size-1);
+						PdfNumber id = (PdfNumber) array.remove(size-2);
+						array.add(new PdfIndirectReference(id, generation));
+					} else {
+						array.add(obj);
+					}
 				}
 				
 				if(!buffer.toString().equals("]")) {
@@ -416,10 +463,17 @@ abstract public class BaseParser {
 				clearBuffer();
 				nextChar(true);
 				return array;
+			case "/" :
+				clearBuffer();
+				nextChar(true);
+				return readName(strict);
+			case "R" :
+				clearBuffer();
+				nextChar(true);
+				return new PdfKeyword("R");
 			default :
 				char firstChar = buffer.charAt(0);
 				debug("firstChar:" + firstChar);
-				// Number
 				if ( (firstChar >= '0' && firstChar <= '9') || firstChar == '-' || firstChar == '.') {
 					return readNumber();
 				} else {

@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import jpdf.Document;
+import jpdf.objects.PdfArray;
 import jpdf.objects.PdfDictionary;
 import jpdf.objects.PdfIndirectObject;
 import jpdf.objects.PdfNumber;
@@ -58,9 +59,19 @@ public class Pdf14Parser extends BaseParser implements Parser {
 		System.out.println(root);
 		PdfDictionary pages = (PdfDictionary) root.get("Pages");
 		System.out.println(pages);
-		System.out.println(pages.get("Pages"));
+		// System.out.println(pages.get("Pages")); = null
 		System.out.println(pages.get("Count"));
-		System.out.println(pages.get("Kids"));
+		System.out.println(pages.get("Type"));
+		PdfArray kids = (PdfArray) pages.get("Kids");
+		System.out.println(kids);
+		for(PdfObject kid : kids) {
+			if(kid instanceof PdfDictionary) {
+				PdfDictionary kidDict = (PdfDictionary) kid;
+				System.out.println(kidDict.get("Count"));
+				System.out.println(kidDict.get("Type"));
+				System.out.println(kidDict.get("Kids"));
+			}
+		}
 		return new Document();
 	}
 	
@@ -78,6 +89,27 @@ public class Pdf14Parser extends BaseParser implements Parser {
 				}
 			} else if(obj instanceof PdfDictionary) {
 				replaceIndirectReference((PdfDictionary) obj);
+			} else if(obj instanceof PdfArray) {
+				replaceIndirectReference((PdfArray) obj);
+			}
+		}
+	}
+	
+	private void replaceIndirectReference(PdfArray arr) {
+		for(int i=0; i<arr.size();i++) {
+			PdfObject obj = arr.get(i);
+			if(obj instanceof PdfIndirectReference) {
+				PdfIndirectReference ref = (PdfIndirectReference) obj;
+				Map<PdfNumber, PdfIndirectObject> generations = indirectObjects.get(ref.getId());
+				if(generations == null) {
+					System.err.println("Indirect Reference " + ref + " could not be resolved.");
+				} else {
+					arr.set(i, generations.get(ref.getGeneration()).getObj());
+				}
+			} else if(obj instanceof PdfDictionary) {
+				replaceIndirectReference((PdfDictionary) obj);
+			} else if(obj instanceof PdfArray) {
+				replaceIndirectReference((PdfArray) obj);
 			}
 		}
 	}
