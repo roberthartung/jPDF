@@ -1,6 +1,7 @@
 package jpdf.parser;
 
 import java.io.BufferedReader;
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.util.HashMap;
 import java.util.Map;
@@ -27,17 +28,22 @@ public class Pdf14Parser extends BaseParser implements Parser {
 	 */
 
 	public Document parse() throws ParserException {
-		parseIndirectObjects();
-		parseCrossReferenceTable();
-		PdfDictionary dict = parseTrailer();
-		while(!buffer.toString().equals("x")) {
-			parseIndirectObject();
-		}
-		parseCrossReferenceTable();
+		PdfDictionary dict = null;
 		try {
-			parseTrailer();
-		} catch(IllegalArgumentException e) {
-			e.printStackTrace();
+			parseIndirectObjects();
+			parseCrossReferenceTable();
+			dict = parseTrailer();
+			while(!buffer.toString().equals("x")) {
+				parseIndirectObject();
+			}
+			parseCrossReferenceTable();
+			try {
+				parseTrailer();
+			} catch(IllegalArgumentException e) {
+				e.printStackTrace();
+			}
+		} catch(EOFException e) {
+			System.out.println("EOF reached for PDF14Parser.");
 		}
 		
 		for(Entry<PdfNumber, Map<PdfNumber, PdfIndirectObject>> entry : indirectObjects.entrySet()) {
@@ -52,11 +58,12 @@ public class Pdf14Parser extends BaseParser implements Parser {
 		for(PdfStreamObject so : streamObjects) {
 			replaceIndirectReference(so.getDictionary());
 		}
-		
+	
 		replaceIndirectReference(dict);
 		
 		PdfDictionary root = (PdfDictionary) dict.get("Root");
 		parsePageTree((PdfDictionary) root.get("Pages"));
+		
 		return new Document();
 	}
 	
@@ -99,7 +106,7 @@ public class Pdf14Parser extends BaseParser implements Parser {
 		}
 	}
 	
-	private PdfDictionary parseTrailer() throws ParserException {
+	private PdfDictionary parseTrailer() throws ParserException, EOFException {
 		if(buffer.toString().equals("t")) {
 			readWord("railer");
 			clearBuffer();
@@ -120,7 +127,7 @@ public class Pdf14Parser extends BaseParser implements Parser {
 		}
 	}
 
-	private void parseIndirectObjects() throws ParserException {
+	private void parseIndirectObjects() throws ParserException, EOFException {
 		// read next char into buffer
 		nextChar(true);
 		Character tmp;
@@ -131,7 +138,7 @@ public class Pdf14Parser extends BaseParser implements Parser {
 		}
 	}
 	
-	private void parseCrossReferenceTable() throws ParserException {
+	private void parseCrossReferenceTable() throws ParserException, EOFException {
 		if(buffer.toString().equals("x")) {
 			readWord("ref");
 			clearBuffer();

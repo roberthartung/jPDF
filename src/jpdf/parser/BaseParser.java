@@ -4,6 +4,7 @@ import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
@@ -28,7 +29,7 @@ import jpdf.objects.PdfStreamObject;
 abstract public class BaseParser {
 	protected static char[] delimiters = {'(', ')', '<', '>', '[', ']', '{', '}', '/', '%'};
 	
-	private static final boolean DEBUG = false;
+	protected static boolean DEBUG = false;
 	
 	static {
 		Arrays.sort(delimiters);
@@ -50,7 +51,7 @@ abstract public class BaseParser {
 
 	private BufferedStream stream;
 	
-	private void debug(String s) {
+	protected void debug(String s) {
 		if(DEBUG)
 			System.out.println(s);
 	}
@@ -81,13 +82,16 @@ abstract public class BaseParser {
 		return oldBuffer;
 	}
 	
-	protected Character _nextChar() {
+	protected Character _nextChar() throws EOFException {
 		try 
 		{
-			int c = stream.read();
-			return Character.toChars(c)[0];
+			return Character.toChars(stream.read())[0];
+		} catch(EOFException e) {
+			throw e;
 		} catch (IOException e) {
 			e.printStackTrace();
+		} catch(IllegalArgumentException e) {
+			return null;
 		}
 		
 		return null;
@@ -97,9 +101,10 @@ abstract public class BaseParser {
 	 * Reads a number
 	 * 
 	 * @return the number
+	 * @throws EOFException 
 	 */
 	
-	protected PdfNumber readNumber() {
+	protected PdfNumber readNumber() throws EOFException {
 		Character tmp;
 		while(((tmp = _nextChar()) != null) && ((tmp >= '0' && tmp <= '9') || tmp == '.')) {
 			buffer.append(tmp);
@@ -119,9 +124,10 @@ abstract public class BaseParser {
 	 * @param strict Dont allow special characters like [
 	 * 
 	 * @return PdfString
+	 * @throws EOFException 
 	 */
 	
-	protected PdfLiteralString readName() {
+	protected PdfLiteralString readName() throws EOFException {
 		Character tmp;
 		while(((tmp = _nextChar()) != null) && tmp >= 0x21 && tmp <= 0x7e && !isDelimiter(tmp)) {
 			buffer.append(tmp);
@@ -135,7 +141,7 @@ abstract public class BaseParser {
 		return new PdfLiteralString(s);
 	}
 	
-	protected String readUntil(char c) {
+	protected String readUntil(char c) throws EOFException {
 		Character tmp;
 		while(((tmp = _nextChar()) != null) && tmp != c) {
 			buffer.append(tmp);
@@ -144,7 +150,7 @@ abstract public class BaseParser {
 		return b;
 	}
 	
-	protected Character nextChar(boolean skipSpaceCharacters) {
+	protected Character nextChar(boolean skipSpaceCharacters) throws EOFException {
 		Character tmp;
 		do
 		{
@@ -154,11 +160,11 @@ abstract public class BaseParser {
 		return tmp;
 	}
 	
-	protected Character nextChar() {
+	protected Character nextChar() throws EOFException {
 		return nextChar(false);
 	}
 	
-	protected PdfIndirectObject parseIndirectObject() throws ParserException {
+	protected PdfIndirectObject parseIndirectObject() throws ParserException, EOFException {
 		skipComments();
 		PdfNumber num1 = readNumber();
 		PdfNumber num2 = readNumber();
@@ -247,7 +253,7 @@ abstract public class BaseParser {
 		return io;
 	}
 
-	private void skipComments() {
+	private void skipComments() throws EOFException {
 		while(buffer.toString().equals("%")) {
 			//debug("skip comment");
 			parseComment();
@@ -295,7 +301,7 @@ abstract public class BaseParser {
 		}
 	}
 	
-	protected String readLiteralString() {
+	protected String readLiteralString() throws EOFException {
 		StringBuilder sb = new StringBuilder();
 		// HashMap<Character,Integer> charCount = new HashMap<>();
 		int parenthesesCount = 0;
@@ -335,12 +341,12 @@ abstract public class BaseParser {
 		return sb.toString();
 	}
 	
-	protected PdfObject parseObject() throws ParserException {
+	protected PdfObject parseObject() throws ParserException, EOFException {
 		return parseObject(false);
 	}
 	
-	protected PdfObject parseObject(boolean strict) throws ParserException {
-		debug("[parseObject] buffer:" + buffer);
+	protected PdfObject parseObject(boolean strict) throws ParserException, EOFException {
+		//debug("[parseObject] buffer:" + buffer);
 		
 		switch(buffer.toString()) {
 		// Dictionary
@@ -491,7 +497,7 @@ abstract public class BaseParser {
 				return new PdfKeyword("R");
 			default :
 				char firstChar = buffer.charAt(0);
-				debug("firstChar:" + firstChar);
+				//debug("firstChar:" + firstChar);
 				if ( (firstChar >= '0' && firstChar <= '9') || firstChar == '-' || firstChar == '.') {
 					return readNumber();
 				} else if(firstChar == 't') {
@@ -526,7 +532,7 @@ abstract public class BaseParser {
 		}
 	}
 
-	protected String parseComment() {
+	protected String parseComment() throws EOFException {
 		readLine();
 		String comment = buffer.toString();
 		clearBuffer();
@@ -567,14 +573,14 @@ abstract public class BaseParser {
 	
 	protected void parsePageObject(PdfDictionary pages) throws ParserException {
 		pageCount++;
-		if(pageCount == 597) {
+		if(pageCount == 594 || true) {
 			PdfObject contents = pages.get("Contents");
 			if(contents instanceof PdfStreamObject) {
 				PdfStreamObject stream = (PdfStreamObject) contents; 
 				byte[] data = stream.getData();
 				try {
 					String res = new String(data, 0, data.length, "UTF-8");
-					System.out.println(res);
+					//System.out.println(res);
 				} catch (UnsupportedEncodingException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();

@@ -1,5 +1,6 @@
 package jpdf.parser;
 
+import java.io.EOFException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -31,21 +32,24 @@ public class ContentParser extends BaseParser {
 		return objects;
 	}
 
-	public void parse() throws ParserException {
-		nextChar(true);
-		
-		// Check for Artifact
-		if(buffer.toString().equals("/")) {
-			System.out.println(parseObject());
-			if(buffer.toString().equals("<")) {
+	public boolean parse() throws ParserException {
+		try {
+			nextChar(true);
+			
+			// DEBUG = true;
+			
+			// Check for Artifact
+			if(buffer.toString().equals("/")) {
 				System.out.println(parseObject());
+				if(buffer.toString().equals("<")) {
+					System.out.println(parseObject());
+				}
 			}
-		}
-		
-		while(true) {
-			Object token;
-			switch(state) {
-			case PAGE_DESCRIPTION_LEVEL :
+			
+			while(true) {
+				Object token;
+				switch(state) {
+				case PAGE_DESCRIPTION_LEVEL :
 
 				token = readOneOf(
 							"MP", "DP", "BMC", "BDC", "EMC", // Marked-content
@@ -57,30 +61,73 @@ public class ContentParser extends BaseParser {
 						);
 				
 				if(token instanceof PdfKeyword) {
+					debug("Token: " + token + " " + buffer);
+					PdfObject[] objects = clear();
 					switch(((PdfKeyword) token).getKeyword()) {
 						case "BDC" :
 							while(buffer.charAt(0) == '/') {
-								System.out.println(parseObject(true));
-								System.out.println(parseObject(true));
+								parseObject(true);
+								parseObject(true);
 							}
 						break;
+						case "m" :
+						case "re" :
+							debug("Transition to PATH_OBJECT");
+							state = STATES.PATH_OBJECT;
+							break;
+						case "q" :
+							// Save graphic state on stack
+							break;
 						case "BT" :
+							debug("Transition to TEXT_OBJECT");
 								state = STATES.TEXT_OBJECT;
 							break;
-							default :
-								throw new ParserException("Unimplemented token: '"+token+"'");
+						// case "EMC" :
+							// return;
 					}
 				} else {
 					switch((String) token) {
 							default :
-								throw new ParserException("Unimplemented token: '"+token+"'");
+								add(parseObject());
+								break;
+								// throw new ParserException("Unimplemented token: '"+token+"'");
 					}
 				}
 					
 				break;
 			case CLIPPING_PATH_OBJECT:
-				if(true)
-					throw new ParserException("CLIPPING_PATH_OBJECT: unsupported");
+				token = readOneOf(
+						"S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n" // State transitions
+					);
+					
+					if(token instanceof PdfKeyword) {
+						PdfObject[] objects = clear();
+						debug("Token: " + token + " " + buffer);
+						
+						switch(((PdfKeyword) token).getKeyword()) {
+							default:
+								debug("Transition to PAGE_DESCRIPTION_LEVEL");
+								state = STATES.PAGE_DESCRIPTION_LEVEL;
+								break;
+						}
+						/*
+						 W* n
+0 792.03 612 -792 re
+W n
+q 1 0 0 1 72 696.48 cm 0 0 m
+0 1.02 l
+f
+Q
+72 696.48 468 1.02 re
+						 */
+					} else {
+						switch((String) token) {
+								default :
+									add(parseObject());
+									break;
+									// throw new ParserException("Unimplemented token: '"+token+"'");
+						}
+					}
 				break;
 			case EXTERNAL_OBJECT:
 				if(true)
@@ -91,8 +138,41 @@ public class ContentParser extends BaseParser {
 					throw new ParserException("INLINE_IMAGE_OBJECT: unsupported");
 				break;
 			case PATH_OBJECT:
-				if(true)
-					throw new ParserException("PATH_OBJECT: unsupported");
+				token = readOneOf(
+					"m", "l", "c", "v", "y", "h", "re", // Path construction
+					"S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n", // State transitions to PAGE_LEVEL
+					"W", "W*" // State transitions CLIPPING
+				);
+				
+				if(token instanceof PdfKeyword) {
+					PdfObject[] objects = clear();
+					
+					switch(((PdfKeyword) token).getKeyword()) {
+						case "S":
+						case "s" :
+						case "f" :
+						case "F" :
+						case "f+" :
+						case "B":
+						case "B*" :
+						case "b" :
+						case "b*" :
+						case "n" :
+							state = STATES.PAGE_DESCRIPTION_LEVEL;
+						break;
+						case "W" :
+						case "W*" :
+							debug("Transition to CLIPPING_PATH_OBJECT");
+							state = STATES.CLIPPING_PATH_OBJECT;
+							break;
+					}
+				} else {
+					switch((String) token) {
+							default :
+								add(parseObject());
+								break;
+					}
+				}
 				break;
 			case SHADING_OBJECT:
 				if(true)
@@ -110,13 +190,16 @@ public class ContentParser extends BaseParser {
 				);
 				
 				if(token instanceof PdfKeyword) {
+					PdfObject[] objects = clear();
 					switch(((PdfKeyword) token).getKeyword()) {
 						case "ET" :
 							state = STATES.PAGE_DESCRIPTION_LEVEL;
+							debug("Transition to PAGE_DESCRIPTION_LEVEL");
 						break;
 						case "Tj" :
 						case "TJ" :
-							for(PdfObject obj : clear()) {
+							//System.out.println("Token: " + token);
+							for(PdfObject obj : objects) {
 								if(obj instanceof PdfLiteralString) {
 									PdfLiteralString str = (PdfLiteralString) obj;
 									System.out.print(str);
@@ -130,11 +213,8 @@ public class ContentParser extends BaseParser {
 								}
 							}
 							break;
-						case "BT" :
-								state = STATES.TEXT_OBJECT;
-							break;
 							default :
-								PdfObject[] o11 = clear();
+								//System.err.println("Unhandled token: " + token);
 								break;
 					}
 				} else {
@@ -146,41 +226,61 @@ public class ContentParser extends BaseParser {
 							add(parseObject());
 						break;
 						default :
-							add(parseObject());
-						break;
+								add(parseObject());
+							break;
+						}
 					}
+					break;
 				}
-				break;
 			}
+			
+			
+		} catch(EOFException e) {
+			return true;
 		}
 	}
 
-	private Object readOneOf(String ...tokens) throws IndexOutOfBoundsException {
+	private Object readOneOf(String ...tokens) throws IndexOutOfBoundsException, ParserException, EOFException {
 		ArrayList<String> possible = new ArrayList<>();
-		for(String s : tokens) {
-			if(s.charAt(0) == buffer.charAt(0)) {
-				possible.add(s);
-			}
-		}
+		ArrayList<String> matching = new ArrayList<>();
 		
-		int index = 1;
-		try {
-			while(possible.size() > 1 || possible.get(0).length() > index) {
-				nextChar();
-				String b = buffer.toString();
-				Iterator<String> it = possible.iterator();
-				while(it.hasNext()) {
-					String s = it.next();
-					if(s.charAt(index) != b.charAt(index)) {
-						it.remove();
-					}
+		//System.out.print("Tokens:");
+		for(String s : tokens) {
+			possible.add(s);
+			//System.out.print(" " +s);
+		}
+		//System.out.println();
+		
+		//System.out.println("Buffer: " + buffer);
+		
+		int index = 0;
+		while(possible.size() > 0) {
+			// System.out.println(buffer);
+			Iterator<String> it = possible.iterator();
+			while(it.hasNext()) {
+				String s = it.next();
+				if(s.length() == index) {
+					//System.out.println("Matching: " + s);
+					matching.add(s);
+					it.remove();
+				} else if(s.charAt(index) != buffer.charAt(index)) {
+					it.remove();
+					//System.out.println("Remove: " + s);
 				}
+			}
+			
+			if(possible.size() > 0) {
+				nextChar();
 				index++;
 			}
+		}
+	
+		try
+		{
+			PdfKeyword k = new PdfKeyword(matching.get(0));
 			clearBuffer();
 			nextChar(true);
-			
-			return new PdfKeyword(possible.get(0));
+			return k;
 		} catch(IndexOutOfBoundsException e) {
 			
 		}
