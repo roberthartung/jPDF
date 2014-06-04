@@ -61,8 +61,10 @@ public class Pdf14Parser extends BaseParser implements Parser {
 	
 		replaceIndirectReference(dict);
 		
+		/*
 		PdfDictionary root = (PdfDictionary) dict.get("Root");
 		parsePageTree((PdfDictionary) root.get("Pages"));
+		*/
 		
 		return new Document();
 	}
@@ -149,7 +151,7 @@ public class Pdf14Parser extends BaseParser implements Parser {
 			
 			while(i > 0) {
 				readLine();
-				//System.out.println("buffer:" + buffer);
+				System.out.println("buffer:" + buffer);
 				clearBuffer();
 				i--;
 			}

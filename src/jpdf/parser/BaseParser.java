@@ -580,13 +580,13 @@ abstract public class BaseParser {
 				byte[] data = stream.getData();
 				try {
 					String res = new String(data, 0, data.length, "UTF-8");
-					//System.out.println(res);
+					// System.out.println(res);
 				} catch (UnsupportedEncodingException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 				ContentParser parser = new ContentParser(new BufferedStream(new ByteArrayInputStream(data)));
 				parser.parse();
+				//System.out.println("\n");
 			} else {
 				throw new ParserException("Contents is not a stream.");
 			}

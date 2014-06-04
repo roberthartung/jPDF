@@ -39,12 +39,14 @@ public class ContentParser extends BaseParser {
 			// DEBUG = true;
 			
 			// Check for Artifact
+			/*
 			if(buffer.toString().equals("/")) {
 				System.out.println(parseObject());
 				if(buffer.toString().equals("<")) {
-					System.out.println(parseObject());
+					PdfObject obj = parseObject();
 				}
 			}
+			*/
 			
 			while(true) {
 				Object token;
