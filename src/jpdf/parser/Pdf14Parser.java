@@ -1,9 +1,8 @@
 package jpdf.parser;
 
-import java.io.BufferedReader;
 import java.io.EOFException;
-import java.io.FileInputStream;
-import java.util.HashMap;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.util.Map;
 import java.util.Map.Entry;
 
@@ -13,12 +12,13 @@ import jpdf.objects.PdfDictionary;
 import jpdf.objects.PdfIndirectObject;
 import jpdf.objects.PdfNumber;
 import jpdf.objects.PdfObject;
-import jpdf.objects.PdfLiteralString;
 import jpdf.objects.PdfStreamObject;
 
-public class Pdf14Parser extends BaseParser implements Parser {
-	public Pdf14Parser(BufferedStream stream) {
-		super(stream);
+public class Pdf14Parser extends EOFParser implements Parser {
+	// RandomAccessFile file;
+	public Pdf14Parser(RandomAccessFile file) {
+		super(file);
+		// this.file = file;
 	}
 	
 	/**
@@ -28,9 +28,13 @@ public class Pdf14Parser extends BaseParser implements Parser {
 	 */
 
 	public Document parse() throws ParserException {
+		return super.parse();
+		
+		/*
 		PdfDictionary dict = null;
 		try {
 			parseIndirectObjects();
+			
 			parseCrossReferenceTable();
 			dict = parseTrailer();
 			while(!buffer.toString().equals("x")) {
@@ -42,8 +46,8 @@ public class Pdf14Parser extends BaseParser implements Parser {
 			} catch(IllegalArgumentException e) {
 				e.printStackTrace();
 			}
-		} catch(EOFException e) {
-			System.out.println("EOF reached for PDF14Parser.");
+		} catch (EOFException e) {
+			System.out.println("EOF of PDF reached.");
 		}
 		
 		for(Entry<PdfNumber, Map<PdfNumber, PdfIndirectObject>> entry : indirectObjects.entrySet()) {
@@ -61,12 +65,11 @@ public class Pdf14Parser extends BaseParser implements Parser {
 	
 		replaceIndirectReference(dict);
 		
-		/*
 		PdfDictionary root = (PdfDictionary) dict.get("Root");
 		parsePageTree((PdfDictionary) root.get("Pages"));
-		*/
 		
 		return new Document();
+		*/
 	}
 	
 	private void replaceIndirectReference(PdfDictionary dict) {
@@ -107,27 +110,6 @@ public class Pdf14Parser extends BaseParser implements Parser {
 			}
 		}
 	}
-	
-	private PdfDictionary parseTrailer() throws ParserException, EOFException {
-		if(buffer.toString().equals("t")) {
-			readWord("railer");
-			clearBuffer();
-			nextChar(true);
-			PdfDictionary dict = (PdfDictionary) parseObject();
-			// s in buffer
-			readWord("tartxref");
-			clearBuffer();
-			nextChar(true);
-			readLine();
-			clearBuffer();
-			readWord("%%EOF");
-			clearBuffer();
-			nextChar(true);
-			return dict;
-		} else {
-			throw new ParserException("Expecting 'trailer' keyword. found: '"+buffer+"'");
-		}
-	}
 
 	private void parseIndirectObjects() throws ParserException, EOFException {
 		// read next char into buffer
@@ -139,25 +121,20 @@ public class Pdf14Parser extends BaseParser implements Parser {
 			parseIndirectObject();
 		}
 	}
-	
-	private void parseCrossReferenceTable() throws ParserException, EOFException {
-		if(buffer.toString().equals("x")) {
-			readWord("ref");
-			clearBuffer();
-			nextChar(true);
-			PdfNumber first = readNumber();
-			PdfNumber count = readNumber();
-			int i = Integer.parseInt(count.toString());
-			
-			while(i > 0) {
-				readLine();
-				System.out.println("buffer:" + buffer);
-				clearBuffer();
-				i--;
-			}
-			nextChar(true);
-		} else {
-			throw new ParserException("Expecting keyword 'xref'. Found: '"+buffer+"'");
-		}
+/*
+	@Override
+	protected int read() throws IOException {
+		return file.read();
 	}
+
+	@Override
+	protected int read(byte[] bytes, int offset, int i) throws IOException {
+		return file.read(bytes, offset, i);
+	}
+
+	@Override
+	protected String readLine() throws IOException {
+		return file.readLine();
+	}
+	*/
 }

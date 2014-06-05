@@ -6,6 +6,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -49,15 +50,28 @@ abstract public class BaseParser {
 	
 	protected PdfObject object = null;
 
-	private BufferedStream stream;
+	// private BufferedStream stream;
+	
+	// private RandomAccessFile file;
 	
 	protected void debug(String s) {
 		if(DEBUG)
 			System.out.println(s);
 	}
 	
-	public BaseParser(BufferedStream stream) {
-		this.stream = stream;
+	/**
+	 * Read byte
+	 * @return byte or -1
+	 * @throws IOException 
+	 */
+	
+	abstract protected int read() throws IOException;
+	
+	abstract protected int read(byte[] bytes, int offset, int i) throws IOException;
+	
+	abstract protected String readLine() throws IOException;
+	
+	public BaseParser() {
 		indirectObjects = new HashMap<>();
 		buffer = new StringBuffer();
 	}
@@ -85,15 +99,17 @@ abstract public class BaseParser {
 	protected Character _nextChar() throws EOFException {
 		try 
 		{
-			return Character.toChars(stream.read())[0];
+			int b = read();
+			if(b == -1)
+				throw new EOFException("EOF Reached in BaseParser._nextChar()");
+			
+			return (char) b;
 		} catch(EOFException e) {
 			throw e;
 		} catch (IOException e) {
+			System.err.println(e.getMessage());
 			e.printStackTrace();
-		} catch(IllegalArgumentException e) {
-			return null;
 		}
-		
 		return null;
 	}
 	
@@ -120,8 +136,6 @@ abstract public class BaseParser {
 	
 	/**
 	 * Reads a name
-	 * 
-	 * @param strict Dont allow special characters like [
 	 * 
 	 * @return PdfString
 	 * @throws EOFException 
@@ -186,7 +200,7 @@ abstract public class BaseParser {
 		if(buffer.toString().equals("s")) {
 			//readWord("tream");
 			debug("stream object");
-			readLine();
+			_readLine();
 			
 			if(!(obj instanceof PdfDictionary)) {
 				throw new ParserException("Expecting the object before a stream to be a dictionary.");
@@ -265,7 +279,7 @@ abstract public class BaseParser {
 		byte[] bytes = new byte[n];
 		try {
 			while(offset < n) {
-				offset += stream.read(bytes, offset, n-offset);
+				offset += read(bytes, offset, n-offset);
 			}
 		} catch (IOException ex) {
 			throw new ParserException(ex.getMessage());
@@ -273,15 +287,14 @@ abstract public class BaseParser {
 		
 		return bytes;
 	}
-	
+
 	protected void readWord(String word) throws ParserException {
 		int l = word.length();
 		int offset = 0;
 		byte[] bytes = new byte[l];
 		try {
 			while(offset < l) {
-				//offset += bufferedReader.read(chars, offset, l-offset);
-				offset += stream.read(bytes, offset, l-offset);
+				offset += read(bytes, offset, l-offset);
 			}
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
@@ -533,16 +546,16 @@ abstract public class BaseParser {
 	}
 
 	protected String parseComment() throws EOFException {
-		readLine();
+		_readLine();
 		String comment = buffer.toString();
 		clearBuffer();
 		nextChar();
 		return comment;
 	}
 
-	protected void readLine() {
+	protected void _readLine() {
 		try {
-			buffer.append(stream.readLine());
+			buffer.append(readLine());
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -551,7 +564,7 @@ abstract public class BaseParser {
 	private int pageCount = 0;
 	
 	protected void readLine(String s) throws ParserException {
-		readLine();
+		_readLine();
 		if(!s.equals(buffer.toString())) {
 			throw new ParserException("Expected line '"+s+"' instead of '"+buffer+"'");
 		}
@@ -586,10 +599,93 @@ abstract public class BaseParser {
 				}
 				ContentParser parser = new ContentParser(new BufferedStream(new ByteArrayInputStream(data)));
 				parser.parse();
-				//System.out.println("\n");
+				System.out.println("\n");
 			} else {
 				throw new ParserException("Contents is not a stream.");
 			}
+		}
+	}
+	
+	protected HashMap<Integer,HashMap<Integer, Integer>> parseCrossReferenceTable() throws ParserException, EOFException {
+		if(buffer.toString().equals("x")) {
+			HashMap<Integer,HashMap<Integer, Integer>> offsets = new HashMap<>();
+			
+			readWord("ref");
+			clearBuffer();
+			nextChar(true);
+			// System.out.println(buffer);
+			while(buffer.charAt(0) != 't') {
+				int first = Integer.parseInt(readNumber().toString());
+				int i = Integer.parseInt(readNumber().toString());
+				
+				while(i > 0) {
+					int offset = Integer.parseInt(readNumber().toString());
+					int generation = Integer.parseInt(readNumber().toString());
+					_readLine();
+					
+					// Only add to map if entry is used.
+					if(buffer.charAt(0) == 'n') {
+						if(!offsets.containsKey(first)) {
+							offsets.put(first, new HashMap<Integer,Integer>());
+						}
+						
+						offsets.get(first).put(generation, offset);
+					}
+					
+					clearBuffer();
+					i--;
+					first++;
+				}
+				nextChar(true);
+			}
+			
+			return offsets;
+		} else {
+			throw new ParserException("Expecting keyword 'xref'. Found: '"+buffer+"'");
+		}
+	}
+	
+	protected static class TrailerResult {
+		private PdfDictionary dict;
+		private int next;
+
+		TrailerResult(PdfDictionary dict, int next) {
+			this.dict = dict;
+			this.next = next;
+		}
+		
+		public PdfDictionary getDictionary() {
+			return dict;
+		}
+		
+		public int getNext() {
+			return next;
+		}
+	}
+	
+	protected TrailerResult parseTrailer() throws ParserException, EOFException {
+		if(buffer.toString().equals("t")) {
+			readWord("railer");
+			clearBuffer();
+			nextChar(true);
+			PdfDictionary dict = (PdfDictionary) parseObject();
+			// s in buffer
+			readWord("tartxref");
+			clearBuffer();
+			nextChar(true);
+			_readLine();
+			int next = Integer.parseInt(buffer.toString());
+			clearBuffer();
+			readWord("%%EOF");
+			clearBuffer();
+			try {
+				nextChar(true);
+			} catch(EOFException e) {
+				
+			}
+			return new TrailerResult(dict, next);
+		} else {
+			throw new ParserException("Expecting 'trailer' keyword. found: '"+buffer+"'");
 		}
 	}
 }

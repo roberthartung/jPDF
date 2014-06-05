@@ -1,6 +1,8 @@
 package jpdf.parser;
 
 import java.io.EOFException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -16,9 +18,12 @@ public class ContentParser extends BaseParser {
 	private STATES state = STATES.PAGE_DESCRIPTION_LEVEL;
 	
 	private LinkedList<PdfObject> parameterBuffer = new LinkedList<>();
+
+	private BufferedStream stream;
 	
 	public ContentParser(BufferedStream stream) {
-		super(stream);
+		super();
+		this.stream = stream;
 	}
 	
 	private void add(PdfObject o) {
@@ -288,5 +293,20 @@ Q
 		}
 		
 		return buffer.toString();
+	}
+
+	@Override
+	protected int read() throws IOException {
+		return stream.read();
+	}
+
+	@Override
+	protected int read(byte[] bytes, int offset, int i) throws IOException {
+		return stream.read(bytes, offset, i);
+	}
+
+	@Override
+	protected String readLine() throws IOException {
+		return stream.readLine();
 	}
 }
