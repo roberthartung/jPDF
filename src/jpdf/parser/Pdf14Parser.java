@@ -3,6 +3,7 @@ package jpdf.parser;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 
@@ -14,11 +15,9 @@ import jpdf.objects.PdfNumber;
 import jpdf.objects.PdfObject;
 import jpdf.objects.PdfStreamObject;
 
-public class Pdf14Parser extends EOFParser implements Parser {
-	// RandomAccessFile file;
+public class Pdf14Parser extends RandomAccessParser implements Parser {
 	public Pdf14Parser(RandomAccessFile file) {
 		super(file);
-		// this.file = file;
 	}
 	
 	/**
@@ -26,9 +25,9 @@ public class Pdf14Parser extends EOFParser implements Parser {
 	 * 
 	 * @return Document the parsed document or null
 	 */
-
-	public Document parse() throws ParserException {
-		return super.parse();
+	
+	public void parse() throws ParserException {
+		super.parse();
 		
 		/*
 		PdfDictionary dict = null;
@@ -72,6 +71,7 @@ public class Pdf14Parser extends EOFParser implements Parser {
 		*/
 	}
 	
+	/*
 	private void replaceIndirectReference(PdfDictionary dict) {
 		for(Entry<String, PdfObject> entry : dict.entrySet()) {
 			PdfObject obj = entry.getValue();
@@ -110,31 +110,23 @@ public class Pdf14Parser extends EOFParser implements Parser {
 			}
 		}
 	}
-
-	private void parseIndirectObjects() throws ParserException, EOFException {
-		// read next char into buffer
-		nextChar(true);
-		Character tmp;
-		//while(((tmp = nextChar(true)) != null) && ((tmp >= '0' && tmp <= '9') || tmp == '%'))
-		while((tmp = buffer.charAt(0)) != null && ((tmp >= '0' && tmp <= '9') || tmp == '%'))
-		{
-			parseIndirectObject();
+	*/
+	
+	/**
+	 * Parse Cross Reference Table for PDF Version <= 1.4
+	 * The is the xref keyword, Followed by a number of sections and the trailer
+	 */
+	
+	protected int parseCrossReferenceTable() throws ParserException, EOFException {
+		if(buffer.charAt(0) == 'x') {
+			readWord("ref");
+			clearBuffer();
+			nextChar(true);
+			parseCrossReferenceSections();
+			
+			return parseTrailer();
+		} else {
+			throw new ParserException("Expecting keyword 'xref'. Found: '"+buffer+"'");
 		}
 	}
-/*
-	@Override
-	protected int read() throws IOException {
-		return file.read();
-	}
-
-	@Override
-	protected int read(byte[] bytes, int offset, int i) throws IOException {
-		return file.read(bytes, offset, i);
-	}
-
-	@Override
-	protected String readLine() throws IOException {
-		return file.readLine();
-	}
-	*/
 }

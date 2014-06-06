@@ -11,6 +11,7 @@ import jpdf.objects.PdfArray;
 import jpdf.objects.PdfKeyword;
 import jpdf.objects.PdfLiteralString;
 import jpdf.objects.PdfObject;
+import jpdf.util.BufferedStream;
 
 public class ContentParser extends BaseParser {
 	private enum STATES {PAGE_DESCRIPTION_LEVEL, TEXT_OBJECT, SHADING_OBJECT, EXTERNAL_OBJECT, INLINE_IMAGE_OBJECT, CLIPPING_PATH_OBJECT, PATH_OBJECT};

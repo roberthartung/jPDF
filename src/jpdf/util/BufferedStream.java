@@ -1,7 +1,6 @@
-package jpdf.parser;
+package jpdf.util;
 
 import java.io.EOFException;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -10,11 +9,11 @@ public class BufferedStream {
 	
 	int nextByte = -1;
 	
-	BufferedStream(InputStream is) {
+	public BufferedStream(InputStream is) {
 		this.is = is;
 	}
 	
-	String readLine() throws IOException {
+	public String readLine() throws IOException {
 		StringBuilder sb = new StringBuilder();
 		
 		int b;

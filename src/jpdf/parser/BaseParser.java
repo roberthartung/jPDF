@@ -1,22 +1,18 @@
 package jpdf.parser;
 
 import java.util.zip.DataFormatException;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.Inflater;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.Map;
-import java.util.Set;
-import java.util.Stack;
 
+import jpdf.decode.Predictor;
 import jpdf.objects.PdfArray;
 import jpdf.objects.PdfDictionary;
 import jpdf.objects.PdfHexadecimalString;
@@ -38,7 +34,7 @@ abstract public class BaseParser {
 	
 	protected Map<PdfNumber,Map<PdfNumber,PdfIndirectObject>> indirectObjects;
 	
-	protected Set<PdfStreamObject> streamObjects = new HashSet<>();
+	// protected Set<PdfStreamObject> streamObjects = new HashSet<>();
 	
 	/**
 	 * Buffer holding temporary strings
@@ -46,9 +42,13 @@ abstract public class BaseParser {
 	
 	protected StringBuffer buffer;
 	
-	protected Stack<PdfObject> objects = new Stack<>();
+	// protected Stack<PdfObject> objects = new Stack<>();
 	
-	protected PdfObject object = null;
+	// protected PdfObject object = null;
+	
+	protected PdfDictionary crossReferenceDictionary = null; 
+	
+	protected HashMap<Integer,HashMap<Integer, Integer>> crossReferences;
 
 	// private BufferedStream stream;
 	
@@ -74,6 +74,7 @@ abstract public class BaseParser {
 	public BaseParser() {
 		indirectObjects = new HashMap<>();
 		buffer = new StringBuffer();
+		crossReferences = new HashMap<>();
 	}
 	
 	protected boolean contains(char[] arr, char c) {
@@ -207,7 +208,6 @@ abstract public class BaseParser {
 			}
 			
 			clearBuffer();
-			
 			PdfDictionary dict = (PdfDictionary) obj;
 			
 			int length = Integer.parseInt(dict.get("Length").toString());
@@ -215,9 +215,21 @@ abstract public class BaseParser {
 			byte[] result = null;
 			if(dict.containsKey("Filter")) {
 				if(dict.containsKey("FlateDecode")) {
-					// TODO better decoding
+					/*
+					try {
+						GZIPInputStream in = new GZIPInputStream(new ByteArrayInputStream(data));
+						in.read(result, 0, 1000);
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					
+					// result = in.getBytes("ISO-8859-1");
+					*/
+					
 					Inflater inflater = new Inflater();
 					inflater.setInput(data);
+					
 					ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 					try {
 						byte[] tmp = new byte[1024];
@@ -227,10 +239,24 @@ abstract public class BaseParser {
 						}
 						inflater.end();
 						result = buffer.toByteArray();
+						ByteBuffer outBytes = ByteBuffer.wrap(result);
+						if(dict.containsKey("DecodeParms")) {
+							PdfDictionary params = (PdfDictionary) dict.get("DecodeParms");
+							System.out.println("params:" + params);
+							if(params.containsKey("Predictor")) {
+								System.out.println("");
+								Predictor predictor = Predictor.getPredictor(params);
+					            if (predictor != null) {
+					                result = predictor.unpredict(outBytes).array();
+					            }
+							}
+							
+						}
 					} catch (DataFormatException e) {
 						throw new ParserException("Unable to decode data for " + dict);
+					} catch (IOException e) {
+						e.printStackTrace();
 					}
-					
 				} else if(dict.containsKey("DCTDecode")) {
 					
 				} else {
@@ -238,7 +264,7 @@ abstract public class BaseParser {
 				}
 				
 				PdfStreamObject stream = new PdfStreamObject(dict, result);
-				streamObjects.add(stream);
+				// streamObjects.add(stream);
 				obj = stream;
 			} else {
 				// System.out.println(dict);
@@ -372,7 +398,7 @@ abstract public class BaseParser {
 					PdfDictionary dic = new PdfDictionary();
 					clearBuffer();
 					nextChar(true);
-					LinkedList<PdfObject> objectBuffer = new LinkedList<>();
+					// LinkedList<PdfObject> objectBuffer = new LinkedList<>();
 					PdfLiteralString name = null;
 					PdfObject value = null;
 					PdfNumber generation = null;
@@ -561,8 +587,6 @@ abstract public class BaseParser {
 		}
 	}
 	
-	private int pageCount = 0;
-	
 	protected void readLine(String s) throws ParserException {
 		_readLine();
 		if(!s.equals(buffer.toString())) {
@@ -570,6 +594,7 @@ abstract public class BaseParser {
 		}
 	}
 	
+	/*
 	protected void parsePageTree(PdfDictionary pages) throws ParserException {
 		if(!pages.containsKey("Kids")) {
 			parsePageObject(pages);
@@ -605,87 +630,74 @@ abstract public class BaseParser {
 			}
 		}
 	}
+	*/
 	
-	protected HashMap<Integer,HashMap<Integer, Integer>> parseCrossReferenceTable() throws ParserException, EOFException {
-		if(buffer.toString().equals("x")) {
-			HashMap<Integer,HashMap<Integer, Integer>> offsets = new HashMap<>();
+	/**
+	 * Parses the cross reference sections after the xref keyword
+	 * 
+	 * @throws EOFException 			If there are no more characters
+	 */
+	
+	protected void parseCrossReferenceSections() throws EOFException {
+		while(buffer.charAt(0) != 't') {
+			int first = Integer.parseInt(readNumber().toString());
+			int i = Integer.parseInt(readNumber().toString());
 			
-			readWord("ref");
-			clearBuffer();
-			nextChar(true);
-			// System.out.println(buffer);
-			while(buffer.charAt(0) != 't') {
-				int first = Integer.parseInt(readNumber().toString());
-				int i = Integer.parseInt(readNumber().toString());
+			while(i > 0) {
+				int offset = Integer.parseInt(readNumber().toString());
+				int generation = Integer.parseInt(readNumber().toString());
+				_readLine();
 				
-				while(i > 0) {
-					int offset = Integer.parseInt(readNumber().toString());
-					int generation = Integer.parseInt(readNumber().toString());
-					_readLine();
-					
-					// Only add to map if entry is used.
-					if(buffer.charAt(0) == 'n') {
-						if(!offsets.containsKey(first)) {
-							offsets.put(first, new HashMap<Integer,Integer>());
-						}
-						
-						offsets.get(first).put(generation, offset);
+				// Only add to map if entry is used.
+				if(buffer.charAt(0) == 'n') {
+					if(!crossReferences.containsKey(first)) {
+						crossReferences.put(first, new HashMap<Integer,Integer>());
 					}
 					
-					clearBuffer();
-					i--;
-					first++;
+					crossReferences.get(first).put(generation, offset);
 				}
-				nextChar(true);
+				
+				clearBuffer();
+				i--;
+				first++;
 			}
-			
-			return offsets;
-		} else {
-			throw new ParserException("Expecting keyword 'xref'. Found: '"+buffer+"'");
+			nextChar(true);
 		}
 	}
 	
-	protected static class TrailerResult {
-		private PdfDictionary dict;
-		private int next;
-
-		TrailerResult(PdfDictionary dict, int next) {
-			this.dict = dict;
-			this.next = next;
-		}
-		
-		public PdfDictionary getDictionary() {
-			return dict;
-		}
-		
-		public int getNext() {
-			return next;
-		}
-	}
+	/**
+	 * Parses the trailer
+	 * For PDF Version < 1.5 we support the "trailer" keyword. For others only startxref will be parsed.
+	 * 
+	 * @return					Integer of next 
+	 * @throws ParserException
+	 * @throws EOFException
+	 */
 	
-	protected TrailerResult parseTrailer() throws ParserException, EOFException {
-		if(buffer.toString().equals("t")) {
+	protected int parseTrailer() throws ParserException, EOFException {
+		// <= PDF 1.5 (trailer keyword)
+		if(buffer.charAt(0) == 't') {
+			// t in buffer
 			readWord("railer");
 			clearBuffer();
 			nextChar(true);
-			PdfDictionary dict = (PdfDictionary) parseObject();
-			// s in buffer
-			readWord("tartxref");
-			clearBuffer();
-			nextChar(true);
-			_readLine();
-			int next = Integer.parseInt(buffer.toString());
-			clearBuffer();
-			readWord("%%EOF");
-			clearBuffer();
-			try {
-				nextChar(true);
-			} catch(EOFException e) {
-				
-			}
-			return new TrailerResult(dict, next);
-		} else {
-			throw new ParserException("Expecting 'trailer' keyword. found: '"+buffer+"'");
+			crossReferenceDictionary = (PdfDictionary) parseObject();
 		}
+		// s in buffer
+		readWord("tartxref");
+		clearBuffer();
+		nextChar(true);
+		_readLine();
+		int next = Integer.parseInt(buffer.toString());
+		clearBuffer();
+		readWord("%%EOF");
+		clearBuffer();
+		try {
+			nextChar(true);
+		} catch(EOFException e) {
+			
+		}
+		
+		return next;
 	}
 }
