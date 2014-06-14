@@ -69,7 +69,7 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 	public void parse() throws ParserException, IOException {
 		try {
 			// Offset always points to next character offset (in bytes) to read.
-			this.offset = file.length()-1;
+			offset = file.length()-1;
 			file.seek(offset);
 			// Read until second '%' of '%% EOF'
 			prevUntil('%', true);
@@ -275,6 +275,7 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 			PdfReference ref = crossReferences.get(id).get(generation);
 			if(ref instanceof PdfByteOffsetReference) {
 				offset = ((PdfByteOffsetReference) ref).getByteOffset();
+				//System.out.println("ByteOffset: " + offset);
 			} else if(ref instanceof PdfCompressedReference) {
 				PdfCompressedReference compressedReference = (PdfCompressedReference) ref;
 				PdfIndirectObject obj = getIndirectObject(compressedReference.getContainingObjectId(), 0);
@@ -306,17 +307,22 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 
 	@Override
 	protected int read() throws IOException {
+		offset++;
 		return file.read();
 	}
 
 	@Override
 	protected int read(byte[] bytes, int offset, int i) throws IOException {
-		return file.read(bytes, offset, i);
+		int num = file.read(bytes, offset, i);
+		this.offset += num;
+		return num;
 	}
 
 	@Override
 	protected String readLine() throws IOException {
-		return file.readLine();
+		String line = file.readLine();
+		this.offset = file.getFilePointer();
+		return line;
 	}
 	
 	/*
@@ -368,8 +374,7 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 		PdfObject obj = parseObject();
 		
 		if(buffer.toString().equals("s")) {
-			//readWord("tream");
-			debug("stream object");
+			debug("stream object at " + file.getFilePointer());
 			_readLine();
 			
 			if(!(obj instanceof PdfDictionary)) {
@@ -378,16 +383,14 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 			
 			clearBuffer();
 			PdfDictionary dict = (PdfDictionary) obj;
-			
-			//System.out.println(dict);
-			//System.out.println(dict.get("Size"));
-			
 			PdfObject lengthObject = dict.get("Length");
 			if(lengthObject instanceof PdfIndirectReference) {
+				long savedOffset = file.getFilePointer();
 				lengthObject = ((PdfIndirectObject) getObject((PdfIndirectReference) lengthObject)).getObj(); // Resolve indirect reference
-				// System.out.println(lengthObject);
-				// System.out.println(((PdfIndirectReference) lengthObject).getId());
+				clearBuffer();
+				file.seek(savedOffset);
 			}
+			
 			int length;
 			if(lengthObject instanceof PdfNumber) {
 				length = ((PdfNumber) lengthObject).intValue();
@@ -402,18 +405,6 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 				debug("FilterType: " + dict.get("Filter"));
 				
 				if(dict.get("Filter").equals("FlateDecode")) {
-					/*
-					try {
-						GZIPInputStream in = new GZIPInputStream(new ByteArrayInputStream(data));
-						in.read(result, 0, 1000);
-					} catch (IOException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-					
-					// result = in.getBytes("ISO-8859-1");
-					*/
-					
 					Inflater inflater = new Inflater();
 					inflater.setInput(data);
 					
@@ -427,6 +418,7 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 						inflater.end();
 						result = buffer.toByteArray();
 						ByteBuffer outBytes = ByteBuffer.wrap(result);
+						
 						if(dict.containsKey("DecodeParms")) {
 							PdfDictionary params = (PdfDictionary) dict.get("DecodeParms");
 							if(params.containsKey("Predictor")) {
@@ -438,6 +430,7 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 							
 						}
 					} catch (DataFormatException e) {
+						e.printStackTrace();
 						throw new ParserException("Unable to decode data for " + dict + " " + e.getMessage());
 					} catch (IOException e) {
 						e.printStackTrace();

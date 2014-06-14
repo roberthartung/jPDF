@@ -145,12 +145,12 @@ public class Document {
 		for(String fontName : fontsDict.keySet()) {
 			PdfIndirectReference fontRef = (PdfIndirectReference) fontsDict.get(fontName);
 			PdfDictionary fontDictionary = (PdfDictionary) ((PdfIndirectObject) parser.getObject(fontRef)).getObj();
-			System.out.println(fontName + " " + fontDictionary);
+			//System.out.println(fontName + " " + fontDictionary);
 			PdfArray widths = (PdfArray) fontDictionary.get("Widths");
 			PdfDictionary fontDescriptor = (PdfDictionary) ( (PdfIndirectObject) parser.getObject( (PdfIndirectReference) fontDictionary.get("FontDescriptor") ) ).getObj();
-			System.out.println(fontDescriptor);
-			System.out.println(fontDescriptor.get("Ascent") + " " + fontDescriptor.get("Descent"));
-			System.out.println(fontDictionary.get("BaseFont"));
+			//System.out.println(fontDescriptor);
+			//System.out.println(fontDescriptor.get("Ascent") + " " + fontDescriptor.get("Descent"));
+			//System.out.println(fontDictionary.get("BaseFont"));
 			// System.out.println(fontDictionary.get("Flags"));
 			double sum = 0;
 			for(PdfObject width : widths) {
@@ -167,6 +167,8 @@ public class Document {
 		PdfIndirectReference pageRef = (PdfIndirectReference) pageDict.get("Contents");
 		PdfIndirectObject pageObj = (PdfIndirectObject) parser.getObject(pageRef);
 		byte[] data = ((PdfStreamObject) pageObj.getObj()).getData();
+		//String res = new String(data);
+		//System.out.println(res);
 		ContentParser parser = new ContentParser(new BufferedStream(new ByteArrayInputStream(data)));
 		parser.parse();
 		System.out.println("\n");

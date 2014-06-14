@@ -200,7 +200,6 @@ Q
 				
 				if(token instanceof PdfKeyword) {
 					PdfObject[] objects = clear();
-					//System.out.println(token);
 					switch(((PdfKeyword) token).getKeyword()) {
 						case "ET" :
 							state = STATES.PAGE_DESCRIPTION_LEVEL;
@@ -226,13 +225,13 @@ Q
 							break;
 						case "Tm" :
 							// Set text matrix
-							System.out.println("");
+							// System.out.println(objects[0] + " " + objects[3] + " " + objects[4] + " " + objects[5]);
 							break;
 						case "T*" :
 							System.out.println("");
 							break;
 						case "Tf" :
-							System.out.println("Tf:" + objects[0]);
+							debug("Tf:" + objects[0] + " " + objects[1]);
 							break;
 						case "Tj" :
 						case "TJ" :

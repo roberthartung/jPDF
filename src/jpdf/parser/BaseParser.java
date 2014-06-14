@@ -31,7 +31,7 @@ import jpdf.util.BufferedStream;
 abstract public class BaseParser {
 	protected static char[] delimiters = {'(', ')', '<', '>', '[', ']', '{', '}', '/', '%'};
 	
-	protected static boolean DEBUG = true;
+	protected static boolean DEBUG = false;
 	
 	static {
 		Arrays.sort(delimiters);
@@ -394,7 +394,7 @@ abstract public class BaseParser {
 				// TODO enhance white space handling
 				if(buffer.charAt(0) == ')') {
 					clearBuffer(); // remove (
-					nextChar();
+					nextChar(true);
 					return new PdfLiteralString(" ");
 				}
 				String s = readLiteralString();
@@ -464,7 +464,6 @@ abstract public class BaseParser {
 				}
 				
 				throw new ParserException("Unknown next character: '" + firstChar + "'");
-				
 		}
 	}
 
