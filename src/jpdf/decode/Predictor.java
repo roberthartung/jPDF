@@ -80,9 +80,7 @@ public abstract class Predictor {
             // no predictor
             return null;
         }
-        int algorithm = Integer.parseInt(((PdfNumber) algorithmObj).toString());
-        System.out.println("algorithm: " + algorithm);
-    
+        int algorithm = Integer.parseInt(((PdfNumber) algorithmObj).toString());    
         // create the predictor object
         Predictor predictor = null;
         switch (algorithm) {

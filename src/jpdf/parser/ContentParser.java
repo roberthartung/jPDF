@@ -10,6 +10,7 @@ import java.util.LinkedList;
 import jpdf.objects.PdfArray;
 import jpdf.objects.PdfKeyword;
 import jpdf.objects.PdfLiteralString;
+import jpdf.objects.PdfNumber;
 import jpdf.objects.PdfObject;
 import jpdf.util.BufferedStream;
 
@@ -199,14 +200,42 @@ Q
 				
 				if(token instanceof PdfKeyword) {
 					PdfObject[] objects = clear();
+					//System.out.println(token);
 					switch(((PdfKeyword) token).getKeyword()) {
 						case "ET" :
 							state = STATES.PAGE_DESCRIPTION_LEVEL;
 							debug("Transition to PAGE_DESCRIPTION_LEVEL");
 						break;
+						case "'" :
+							// System.out.println("!!!'!!!");
+							break;
+						case "\"" : 
+								//System.out.println("backslash");
+							break;
+						case "Td" :
+							// System.out.println("Td: " + objects[0]);
+							break;
+						case "TD" :
+							// System.out.println("[TD] x=" + objects[0] + " y=" + objects[1]);
+							double x = ((PdfNumber) objects[0]).doubleValue();
+							double y = ((PdfNumber) objects[1]).doubleValue();
+							if(y != 0) {
+								System.out.println("");
+							}
+							
+							break;
+						case "Tm" :
+							// Set text matrix
+							System.out.println("");
+							break;
+						case "T*" :
+							System.out.println("");
+							break;
+						case "Tf" :
+							System.out.println("Tf:" + objects[0]);
+							break;
 						case "Tj" :
 						case "TJ" :
-							//System.out.println("Token: " + token);
 							for(PdfObject obj : objects) {
 								if(obj instanceof PdfLiteralString) {
 									PdfLiteralString str = (PdfLiteralString) obj;

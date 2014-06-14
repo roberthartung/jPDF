@@ -52,6 +52,9 @@ public class AbstractParser {
 				case "%PDF-1.4" :
 					p = new Pdf14Parser(file);
 				break;
+				case "%PDF-1.3" :
+					p = new Pdf14Parser(file);
+				break;
 				case "%PDF-1.6" :
 					p = new Pdf16Parser(file);
 				break;

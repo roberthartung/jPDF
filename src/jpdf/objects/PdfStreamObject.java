@@ -17,4 +17,8 @@ public class PdfStreamObject implements PdfObject {
 	public byte[] getData() {
 		return data;
 	}
+	
+	public int getDataLength() {
+		return data.length;
+	}
 }

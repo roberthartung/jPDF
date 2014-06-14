@@ -1,10 +1,25 @@
 package jpdf.objects;
 
-public class PdfNumber implements PdfObject {
+public class PdfNumber extends Number implements PdfObject {
 	private String n;
 
+	private int intValue;
+	
+	private double doubleValue;
+	
+	private float floatValue;
+	
+	private long longValue;
+	
 	public PdfNumber(String n) {
 		this.n = n;
+		try {
+			intValue = Integer.parseInt(n);
+			doubleValue = (double) intValue;
+		} catch(NumberFormatException e) {
+			doubleValue = Double.parseDouble(n);
+			intValue = (int) doubleValue;
+		}
 	}
 	
 	public String toString() {
@@ -34,5 +49,25 @@ public class PdfNumber implements PdfObject {
 		} else if (!n.equals(other.n))
 			return false;
 		return true;
+	}
+
+	@Override
+	public long longValue() {
+		return longValue;
+	}
+
+	@Override
+	public float floatValue() {
+		return floatValue;
+	}
+
+	@Override
+	public double doubleValue() {
+		return doubleValue;
+	}
+
+	@Override
+	public int intValue() {
+		return intValue;
 	}
 }

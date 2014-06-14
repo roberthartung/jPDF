@@ -8,8 +8,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import jpdf.decode.Predictor;
@@ -22,11 +24,14 @@ import jpdf.objects.PdfNumber;
 import jpdf.objects.PdfObject;
 import jpdf.objects.PdfLiteralString;
 import jpdf.objects.PdfStreamObject;
+import jpdf.references.PdfByteOffsetReference;
+import jpdf.references.PdfReference;
+import jpdf.util.BufferedStream;
 
 abstract public class BaseParser {
 	protected static char[] delimiters = {'(', ')', '<', '>', '[', ']', '{', '}', '/', '%'};
 	
-	protected static boolean DEBUG = false;
+	protected static boolean DEBUG = true;
 	
 	static {
 		Arrays.sort(delimiters);
@@ -46,9 +51,11 @@ abstract public class BaseParser {
 	
 	// protected PdfObject object = null;
 	
-	protected PdfDictionary crossReferenceDictionary = null; 
+	protected List<PdfDictionary> crossReferenceDictionaries = new ArrayList<>(); 
 	
-	protected HashMap<Integer,HashMap<Integer, Integer>> crossReferences;
+	protected PdfDictionary rootDictionary = null;
+	
+	protected HashMap<Integer,HashMap<Integer, PdfReference>> crossReferences;
 
 	// private BufferedStream stream;
 	
@@ -148,7 +155,7 @@ abstract public class BaseParser {
 			buffer.append(tmp);
 		}
 		String s = clearBuffer();
-		if(tmp == ' ') { //  || tmp == '\n' || tmp == '\r'
+		if(tmp == ' '  || tmp == '\n' || tmp == '\r') { 
 			nextChar(true);
 		} else {
 			buffer.append(tmp);
@@ -178,122 +185,8 @@ abstract public class BaseParser {
 	protected Character nextChar() throws EOFException {
 		return nextChar(false);
 	}
-	
-	protected PdfIndirectObject parseIndirectObject() throws ParserException, EOFException {
-		skipComments();
-		PdfNumber num1 = readNumber();
-		PdfNumber num2 = readNumber();
-		
-		debug("indirectObject: " + num1 + "." + num2);
-		
-		boolean hasKeywords = false;
-		
-		if(buffer.toString().equals("o")) {
-			debug("'obj' keyword found");
-			readWord("bj");
-			clearBuffer();
-			hasKeywords = true;
-			nextChar(true);
-		}
-		
-		PdfObject obj = parseObject();
-		
-		if(buffer.toString().equals("s")) {
-			//readWord("tream");
-			debug("stream object");
-			_readLine();
-			
-			if(!(obj instanceof PdfDictionary)) {
-				throw new ParserException("Expecting the object before a stream to be a dictionary.");
-			}
-			
-			clearBuffer();
-			PdfDictionary dict = (PdfDictionary) obj;
-			
-			int length = Integer.parseInt(dict.get("Length").toString());
-			byte[] data = readNBytes(length);
-			byte[] result = null;
-			if(dict.containsKey("Filter")) {
-				if(dict.containsKey("FlateDecode")) {
-					/*
-					try {
-						GZIPInputStream in = new GZIPInputStream(new ByteArrayInputStream(data));
-						in.read(result, 0, 1000);
-					} catch (IOException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-					
-					// result = in.getBytes("ISO-8859-1");
-					*/
-					
-					Inflater inflater = new Inflater();
-					inflater.setInput(data);
-					
-					ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-					try {
-						byte[] tmp = new byte[1024];
-						while(!inflater.finished()) {
-							int resultLength = inflater.inflate(tmp);
-							buffer.write(tmp, 0, resultLength);
-						}
-						inflater.end();
-						result = buffer.toByteArray();
-						ByteBuffer outBytes = ByteBuffer.wrap(result);
-						if(dict.containsKey("DecodeParms")) {
-							PdfDictionary params = (PdfDictionary) dict.get("DecodeParms");
-							System.out.println("params:" + params);
-							if(params.containsKey("Predictor")) {
-								System.out.println("");
-								Predictor predictor = Predictor.getPredictor(params);
-					            if (predictor != null) {
-					                result = predictor.unpredict(outBytes).array();
-					            }
-							}
-							
-						}
-					} catch (DataFormatException e) {
-						throw new ParserException("Unable to decode data for " + dict);
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-				} else if(dict.containsKey("DCTDecode")) {
-					
-				} else {
-					throw new ParserException("Unsupported filter. " + dict);
-				}
-				
-				PdfStreamObject stream = new PdfStreamObject(dict, result);
-				// streamObjects.add(stream);
-				obj = stream;
-			} else {
-				// System.out.println(dict);
-			}
-			
-			nextChar(true);
-			readLine("endstream");
-			clearBuffer();
-			nextChar(true);
-		}
-		
-		if(hasKeywords) {
-			readWord("ndobj");
-			clearBuffer();
-			nextChar(true);
-		}
-		
-		PdfIndirectObject io = new PdfIndirectObject(num1, num2, obj);
-		
-		if(!indirectObjects.containsKey(num1)) {
-			indirectObjects.put(num1, new HashMap<PdfNumber,PdfIndirectObject>());
-		}
-		
-		indirectObjects.get(num1).put(num2, io);
-		
-		return io;
-	}
 
-	private void skipComments() throws EOFException {
+	protected void skipComments() throws EOFException {
 		while(buffer.toString().equals("%")) {
 			//debug("skip comment");
 			parseComment();
@@ -388,7 +281,7 @@ abstract public class BaseParser {
 		//debug("[parseObject] buffer:" + buffer);
 		
 		switch(buffer.toString()) {
-		// Dictionary
+			// Dictionary or String
 			case "<" :
 				// Check second <
 				clearBuffer();
@@ -402,21 +295,25 @@ abstract public class BaseParser {
 					PdfLiteralString name = null;
 					PdfObject value = null;
 					PdfNumber generation = null;
-					while(!buffer.toString().equals(">")) {
+					while(buffer.charAt(0) != '>') {
 						PdfObject obj = parseObject(true);
-						
+						debug("dict.obj=" + obj + "'"+buffer+"'");
 						if(obj instanceof PdfLiteralString) {
 							if(value != null) {
-								debug(name + " = " + value);
+								//debug(name + " = " + value);
 								dic.put(name.toString(), value);
 								value = null;
+								name = (PdfLiteralString) obj;
 							} else if(name != null) {
-								debug(name + " = null");
-								dic.put(name.toString(), null);
+								// Two "Names"
+								// debug(name + " = null");
+								dic.put(name.toString(), obj);
+								name = null;
+							} else {
+								name = (PdfLiteralString) obj;
 							}
-							name = (PdfLiteralString) obj;
 						} else if(obj instanceof PdfKeyword) {
-							debug(name + " = R(" + value + " " + generation + ")");
+							//debug(name + " = R(" + value + " " + generation + ")");
 							dic.put(name.toString(), new PdfIndirectReference((PdfNumber) value, generation));
 							name = null;
 							value = null;
@@ -493,7 +390,7 @@ abstract public class BaseParser {
 				}
 			case "(" :
 				clearBuffer(); // remove (
-				nextChar();
+				nextChar(true);
 				// TODO enhance white space handling
 				if(buffer.charAt(0) == ')') {
 					clearBuffer(); // remove (
@@ -650,11 +547,13 @@ abstract public class BaseParser {
 				
 				// Only add to map if entry is used.
 				if(buffer.charAt(0) == 'n') {
-					if(!crossReferences.containsKey(first)) {
+					addCrossReference(first, generation, new PdfByteOffsetReference(offset));
+					/*if(!crossReferences.containsKey(first)) {
 						crossReferences.put(first, new HashMap<Integer,Integer>());
 					}
 					
 					crossReferences.get(first).put(generation, offset);
+					*/
 				}
 				
 				clearBuffer();
@@ -681,7 +580,7 @@ abstract public class BaseParser {
 			readWord("railer");
 			clearBuffer();
 			nextChar(true);
-			crossReferenceDictionary = (PdfDictionary) parseObject();
+			crossReferenceDictionaries.add((PdfDictionary) parseObject());
 		}
 		// s in buffer
 		readWord("tartxref");
@@ -700,4 +599,31 @@ abstract public class BaseParser {
 		
 		return next;
 	}
+	
+	protected void addCrossReference(int objectId, int generation, PdfReference ref) {
+		HashMap<Integer,PdfReference> obj = crossReferences.get(objectId);
+		if(obj == null) {
+			obj = new HashMap<Integer, PdfReference>();
+			crossReferences.put(objectId, obj);
+		}
+		
+		obj.put(generation, ref);
+	}
+	
+	/**
+	 * @throws ParserException 
+	 * @throws EOFException 
+	 * @since PDFv1.5
+	 */
+	
+	/*
+	protected void parseObjectStream() throws EOFException, ParserException {
+		PdfIndirectObject obj = parseIndirectObject();
+		// N = number of compressed objects
+		// Type = ObjStm
+		// First = Byte Offset in decoded data of first object
+		// Extends reference to another object stream
+		// byte[] data = obj.getObj();
+	}
+	*/
 }

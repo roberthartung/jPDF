@@ -1,8 +1,11 @@
 package jpdf.parser;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.LinkedList;
 //import java.util.Map;
@@ -10,11 +13,24 @@ import java.util.LinkedList;
 
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.zip.DataFormatException;
+import java.util.zip.Inflater;
+
+import javax.crypto.NullCipher;
+import javax.print.attribute.standard.Compression;
 
 import jpdf.Document;
+import jpdf.decode.Predictor;
 import jpdf.objects.PdfDictionary;
 import jpdf.objects.PdfIndirectObject;
+import jpdf.objects.PdfNumber;
 import jpdf.objects.PdfObject;
+import jpdf.objects.PdfObjectStream;
+import jpdf.objects.PdfStreamObject;
+import jpdf.references.PdfByteOffsetReference;
+import jpdf.references.PdfCompressedReference;
+import jpdf.references.PdfReference;
+import jpdf.util.BufferedStream;
 
 /**
  * Parses the PDF file from its end. Extends the base parser for functionality to read from the end
@@ -31,7 +47,7 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 	
 	// abstract protected TrailerResult parseTrailer() throws ParserException, EOFException;
 	
-	abstract protected int parseCrossReferenceTable() throws ParserException, EOFException;
+	abstract protected int parseCrossReferenceTable() throws ParserException, EOFException, IOException;
 	
 	/**
 	 * @param file
@@ -46,10 +62,11 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 	
 	/**
 	 * Parses the Document. But does not parse the whole document but parses
+	 * @throws IOException 
 	 */
 	
 	@Override
-	public void parse() throws ParserException {
+	public void parse() throws ParserException, IOException {
 		try {
 			// Offset always points to next character offset (in bytes) to read.
 			this.offset = file.length()-1;
@@ -68,10 +85,21 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 				clearBuffer();
 				nextChar();
 				lastXref = parseCrossReferenceTable();
+				if(crossReferenceDictionaries.size() == 1 && !crossReferenceDictionaries.get(0).containsKey("Prev"))
+					break;
 			}
 			
 			// TODO: Find Last Cross-Reference Table and parse it
 			// hint: Use all previous dictionaries, find Max(Prev)
+			
+			if(crossReferenceDictionaries.get(0).containsKey("Prev")) {
+				offset = ((PdfNumber) crossReferenceDictionaries.get(0).get("Prev")).intValue();
+				file.seek(offset);
+				clearBuffer();
+				nextChar();
+				parseCrossReferenceTable();
+			}
+			
 			/*
 			offset = Integer.parseInt(last.toString());
 			file.seek(offset);
@@ -81,12 +109,30 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 			TrailerResult result = null;
 			result = parseTrailer();
 			*/
+			for(PdfDictionary dict : crossReferenceDictionaries) {
+				if(dict.containsKey("Root")) {
+					PdfIndirectReference ref = (PdfIndirectReference) dict.get("Root");
+					// System.out.println(crossReferenceDictionary);
+					// Turn ref to object
+					PdfIndirectObject root = getIndirectObject(ref);
+					// Get dict from object
+					rootDictionary = (PdfDictionary) root.getObj();
+					break;
+				}
+			}
 			
+			/*
+			 // Get reference from crossRefDirectory for the Root Entry
+		
+			 */
+			/*
 			if(crossReferenceDictionary != null) {
-				System.out.println(crossReferenceDictionary);
+				// System.out.println(crossReferenceDictionary);
+				super.crossReferenceDictionary = crossReferenceDictionary;
 			} else {
 				System.err.println("Root not found.");
 			}
+			*/
 			
 			//return doc;
 		} catch (IOException ex) {
@@ -186,24 +232,72 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 		return b;
 	}
 	
-	public PdfIndirectObject getIndirectObject(PdfIndirectReference ref) throws NumberFormatException, ParserException {
+	public PdfIndirectObject getIndirectObject(PdfIndirectReference ref) throws ParserException, IOException {
 		return getIndirectObject(Integer.parseInt(ref.getId().toString()), Integer.parseInt(ref.getGeneration().toString()));
 	}
 	
-	public PdfIndirectObject getIndirectObject(Integer id, Integer generation) throws ParserException {
+	public PdfIndirectObject getIndirectObject(Integer id, Integer generation) throws ParserException, IOException {
+		int offset;
 		try {
-			int offset = objectsMap.get(id).get(generation);
-			file.seek(offset);
-			clearBuffer();
-			nextChar();
-			return parseIndirectObject();
+			offset = objectsMap.get(id).get(generation);
 		} catch(NullPointerException e) {
-			
-		} catch(IOException e) {
+			try {
+				PdfReference ref = crossReferences.get(id).get(generation);
+				if(ref instanceof PdfByteOffsetReference) {
+					offset = ((PdfByteOffsetReference) ref).getByteOffset();
+				} else if(ref instanceof PdfCompressedReference) {
+					/*PdfCompressedReference compressedReference = (PdfCompressedReference) ref;
+					return getIndirectObject(compressedReference.getContainingObjectId(), 0);
+					*/
+					throw new ParserException("Needed?");
+				} else {
+					throw new ParserException("No reference found for " + id);
+				}
+			} catch(NullPointerException ee) {
+				return null;
+			}
+		}
+		
+		file.seek(offset);
+		clearBuffer();
+		nextChar();
+		return parseIndirectObject();
+	}
+	
+	public PdfObject getObject(PdfIndirectReference ref) throws ParserException, IOException {
+		return getObject(Integer.parseInt(ref.getId().toString()), Integer.parseInt(ref.getGeneration().toString()));
+	}
+	
+	public PdfObject getObject(Integer id, Integer generation) throws ParserException, IOException {
+		int offset;
+		
+		try {
+			PdfReference ref = crossReferences.get(id).get(generation);
+			if(ref instanceof PdfByteOffsetReference) {
+				offset = ((PdfByteOffsetReference) ref).getByteOffset();
+			} else if(ref instanceof PdfCompressedReference) {
+				PdfCompressedReference compressedReference = (PdfCompressedReference) ref;
+				PdfIndirectObject obj = getIndirectObject(compressedReference.getContainingObjectId(), 0);
+				PdfObjectStream objectStream = (PdfObjectStream) obj.getObj();
+				return objectStream.getObjects().get(id);
+			} else {
+				throw new ParserException("No reference found for " + id);
+			}
+		} catch(NullPointerException ee) {
+			return null;
+		}
+		
+		try {
+			offset = objectsMap.get(id).get(generation);
+		} catch(NullPointerException e) {
 			
 		}
 		
-		return null;
+		file.seek(offset);
+		clearBuffer();
+		nextChar();
+		PdfIndirectObject io = parseIndirectObject();
+		return io;
 	}
 	
 	/**
@@ -244,4 +338,156 @@ abstract public class RandomAccessParser extends BaseParser implements Parser {
 		}
 	}
 	*/
+	
+	protected PdfIndirectObject parseIndirectObjectAt(long byteOffset) throws IOException, ParserException {
+		file.seek(byteOffset);
+		return parseIndirectObject();
+	}
+	
+	public PdfDictionary getRootDictionary() throws ParserException, IOException {
+		return rootDictionary;
+	}
+	
+	protected PdfIndirectObject parseIndirectObject() throws ParserException, IOException {
+		skipComments();
+		PdfNumber num1 = readNumber();
+		PdfNumber num2 = readNumber();
+		
+		debug("indirectObject: " + num1 + "." + num2);
+		
+		boolean hasKeywords = false;
+		
+		if(buffer.toString().equals("o")) {
+			debug("'obj' keyword found");
+			readWord("bj");
+			clearBuffer();
+			hasKeywords = true;
+			nextChar(true);
+		}
+		
+		PdfObject obj = parseObject();
+		
+		if(buffer.toString().equals("s")) {
+			//readWord("tream");
+			debug("stream object");
+			_readLine();
+			
+			if(!(obj instanceof PdfDictionary)) {
+				throw new ParserException("Expecting the object before a stream to be a dictionary.");
+			}
+			
+			clearBuffer();
+			PdfDictionary dict = (PdfDictionary) obj;
+			
+			//System.out.println(dict);
+			//System.out.println(dict.get("Size"));
+			
+			PdfObject lengthObject = dict.get("Length");
+			if(lengthObject instanceof PdfIndirectReference) {
+				lengthObject = ((PdfIndirectObject) getObject((PdfIndirectReference) lengthObject)).getObj(); // Resolve indirect reference
+				// System.out.println(lengthObject);
+				// System.out.println(((PdfIndirectReference) lengthObject).getId());
+			}
+			int length;
+			if(lengthObject instanceof PdfNumber) {
+				length = ((PdfNumber) lengthObject).intValue();
+			}  else {
+				throw new ParserException("Unable to read Length from Stream");
+			}
+			
+			// int length = Integer.parseInt(dict.get("Length").toString());
+			byte[] data = readNBytes(length);
+			byte[] result = null;
+			if(dict.containsKey("Filter")) {
+				debug("FilterType: " + dict.get("Filter"));
+				
+				if(dict.get("Filter").equals("FlateDecode")) {
+					/*
+					try {
+						GZIPInputStream in = new GZIPInputStream(new ByteArrayInputStream(data));
+						in.read(result, 0, 1000);
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					
+					// result = in.getBytes("ISO-8859-1");
+					*/
+					
+					Inflater inflater = new Inflater();
+					inflater.setInput(data);
+					
+					ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+					try {
+						byte[] tmp = new byte[1024];
+						while(!inflater.finished()) {
+							int resultLength = inflater.inflate(tmp);
+							buffer.write(tmp, 0, resultLength);
+						}
+						inflater.end();
+						result = buffer.toByteArray();
+						ByteBuffer outBytes = ByteBuffer.wrap(result);
+						if(dict.containsKey("DecodeParms")) {
+							PdfDictionary params = (PdfDictionary) dict.get("DecodeParms");
+							if(params.containsKey("Predictor")) {
+								Predictor predictor = Predictor.getPredictor(params);
+					            if (predictor != null) {
+					                result = predictor.unpredict(outBytes).array();
+					            }
+							}
+							
+						}
+					} catch (DataFormatException e) {
+						throw new ParserException("Unable to decode data for " + dict + " " + e.getMessage());
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+				} else if(dict.get("Filter").equals("DCTDecode")) {
+					
+				} else {
+					throw new ParserException("Unsupported filter. " + dict);
+				}
+				
+				PdfStreamObject stream = new PdfStreamObject(dict, result);
+				// streamObjects.add(stream);
+				obj = stream;
+			} else {
+				// System.out.println(dict);
+			}
+			
+			if(dict.containsKey("Type") && dict.get("Type").equals("ObjStm")) {
+				ObjectStreamParser objectStreamParser = new ObjectStreamParser(new BufferedStream(new ByteArrayInputStream(result)), dict);
+				try {
+					objectStreamParser.parse();
+				} catch(EOFException e) {
+					
+				} catch(IOException e) {
+					throw new ParserException("Unable to parse Content Stream");
+				}
+				
+				obj = objectStreamParser.getObjectStream();
+			}
+			
+			nextChar(true);
+			readLine("endstream");
+			clearBuffer();
+			nextChar(true);
+		}
+		
+		if(hasKeywords) {
+			readWord("ndobj");
+			clearBuffer();
+			nextChar(true);
+		}
+		
+		PdfIndirectObject io = new PdfIndirectObject(num1, num2, obj);
+		
+		if(!indirectObjects.containsKey(num1)) {
+			indirectObjects.put(num1, new HashMap<PdfNumber,PdfIndirectObject>());
+		}
+		
+		indirectObjects.get(num1).put(num2, io);
+		
+		return io;
+	}
 }

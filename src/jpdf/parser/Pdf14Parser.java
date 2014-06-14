@@ -24,9 +24,10 @@ public class Pdf14Parser extends RandomAccessParser implements Parser {
 	 * Parser the stream and return the document
 	 * 
 	 * @return Document the parsed document or null
+	 * @throws IOException 
 	 */
 	
-	public void parse() throws ParserException {
+	public void parse() throws ParserException, IOException {
 		super.parse();
 		
 		/*
